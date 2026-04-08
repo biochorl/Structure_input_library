@@ -95,7 +95,7 @@ source ~/.bashrc
 
 **Download the MMseqs2 databases**
 
-The script requires locally pre-built MMseqs2 databases for PDB and UniProtKB-TrEMBL. Navigate to the directory where you want to store them (ensure sufficient disk space) and run:
+The script requires locally pre-built MMseqs2 databases for PDB and UniProtKB-TrEMBL. The combined databases require approximately **~120 GB** of disk space. Navigate to the directory where you want to store them and run:
 
 ```bash
 mkdir -p tmp
