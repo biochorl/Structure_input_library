@@ -170,6 +170,20 @@ The `examples/` directory contains sample input files you can use to test the pi
 
 ---
 
+## Databases
+
+The pipeline queries the following public biological databases:
+
+| Database | URL | Description |
+|----------|-----|-------------|
+| [RCSB Protein Data Bank (PDB)](https://www.rcsb.org/) | https://www.rcsb.org/ | Archive of experimentally determined 3D structures of proteins, nucleic acids, and complex assemblies |
+| [UniProt / UniProtKB-TrEMBL](https://www.uniprot.org/) | https://www.uniprot.org/ | Comprehensive, high-quality protein sequence and functional annotation resource |
+| [AlphaFold Protein Structure Database](https://alphafold.ebi.ac.uk/) | https://alphafold.ebi.ac.uk/ | Database of protein structure predictions by AlphaFold, covering the UniProt proteomes |
+
+The PDB and UniProtKB-TrEMBL databases are searched **locally** via pre-built MMseqs2 databases (see [Installation](#installation)). AlphaFold DB is queried **remotely** via its REST API to retrieve pre-computed models.
+
+---
+
 ## Third-party software & licenses
 
 This pipeline integrates or calls the following tools. They are **not bundled** with this repository — users must install them separately.
@@ -188,7 +202,7 @@ This project's own code is released under the [MIT License](LICENSE).
 
 ## Citation
 
-If you use this tool in your research, please cite the underlying software:
+If you use this tool in your research, please cite the underlying software and databases:
 
 ```bibtex
 @article{wohlwend2024boltz1,
@@ -208,5 +222,39 @@ If you use this tool in your research, please cite the underlying software:
   volume  = {35},
   pages   = {1026--1028},
   year    = {2017}
+}
+
+@article{berman2000pdb,
+  title   = {The Protein Data Bank},
+  author  = {Berman, Helen M and Westbrook, John and Feng, Zukang and Gilliland, Gary
+             and Bhat, T N and Weissig, Helge and Shindyalov, Ilya N and Bourne, Philip E},
+  journal = {Nucleic Acids Research},
+  volume  = {28},
+  number  = {1},
+  pages   = {235--242},
+  year    = {2000}
+}
+
+@article{uniprot2023,
+  title   = {{UniProt}: the Universal Protein Knowledgebase in 2023},
+  author  = {{The UniProt Consortium}},
+  journal = {Nucleic Acids Research},
+  volume  = {51},
+  number  = {D1},
+  pages   = {D523--D531},
+  year    = {2023}
+}
+
+@article{varadi2022alphafolddb,
+  title   = {{AlphaFold Protein Structure Database}: massively expanding the
+             structural coverage of protein-sequence space with high-accuracy models},
+  author  = {Varadi, Mihaly and Anyango, Stephen and Deshpande, Mandar and Nair, Sreenath
+             and Natassia, Cindy and Yordanova, Galabina and Yuan, David and Stroe, Oana
+             and Wood, Gemma and Laydon, Agata and others},
+  journal = {Nucleic Acids Research},
+  volume  = {50},
+  number  = {D1},
+  pages   = {D439--D444},
+  year    = {2022}
 }
 ```
