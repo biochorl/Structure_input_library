@@ -244,6 +244,11 @@ def run_mmseqs_search(temp_fasta, query_len, db_path, temp_dir,
                 return (sseqid.strip(), int(sstart), int(send))
         print(f"\n❌ No match in {db_name} passed the thresholds.")
         return None
+    except subprocess.CalledProcessError as e:
+        print(f"ERROR MMseqs2 (exit code {e.returncode})", file=sys.stderr)
+        if e.stderr:
+            print(f"  stderr: {e.stderr.strip()}", file=sys.stderr)
+        return None
     except Exception as e:
         print(f"ERROR MMseqs2: {e}", file=sys.stderr)
         return None

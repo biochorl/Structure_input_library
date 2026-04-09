@@ -214,6 +214,10 @@ def run_mmseqs_search(temp_fasta, query_len, db_path, temp_dir, min_identity, mi
                 return (sseqid.strip(), int(sstart), int(send))
         print(f"\n❌ Nessuna corrispondenza in {db_name} ha superato le soglie.")
         return None
+    except subprocess.CalledProcessError as e:
+        print(f"ERRORE MMseqs2 (exit code {e.returncode})", file=sys.stderr)
+        if e.stderr: print(f"  stderr: {e.stderr.strip()}", file=sys.stderr)
+        return None
     except Exception as e: print(f"ERRORE MMseqs2: {e}", file=sys.stderr); return None
 
 def download_pdb_file(pdb_id, output_path, source="rcsb"):

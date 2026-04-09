@@ -38,10 +38,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # ── Python packages ──────────────────────────────────────────────────────────
-# Install PyTorch with CUDA 12.6 first, then Boltz on top.
+# Install PyTorch with CUDA 12.6 first, then Boltz with the [cuda] extra
+# which pulls in cuequivariance-torch and cuequivariance-ops-torch-cu12
+# (required for GPU-accelerated triangular multiplication kernels).
 RUN pip3 install --no-cache-dir \
         torch==2.7.1 --index-url https://download.pytorch.org/whl/cu126 \
-    && pip3 install --no-cache-dir 'boltz>=2.1'
+    && pip3 install --no-cache-dir 'boltz[cuda]>=2.1'
 
 WORKDIR /workspace
 
