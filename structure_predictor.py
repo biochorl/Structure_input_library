@@ -184,6 +184,37 @@ def check_mmseqs_availability():
     if not shutil.which("mmseqs"): sys.exit("ERRORE: 'mmseqs' non trovato. Installare MMseqs2.")
     print("✔️ Comando 'mmseqs' trovato.")
 
+def build_uniprot_search_params(sensitivity):
+    """Return MMseqs2 extra params tuned for the given sensitivity (1.0 – 8.5).
+
+    Lower values are faster but may miss distant matches.
+    Higher values are slower but more thorough.
+
+    Presets:
+      1.0 – ultra-fast  (default, suited for near-identical matches)
+      4.0 – balanced
+      7.5 – sensitive   (equivalent to MMseqs2 default --sensitive)
+      8.5 – most sensitive
+    """
+    sensitivity = max(1.0, min(8.5, float(sensitivity)))
+    # At low sensitivity use longer k-mers and aggressive early-termination.
+    # Relax those as sensitivity increases.
+    if sensitivity <= 2.0:
+        kmer, max_seqs, max_accept, max_rejected = 7, 10, 1, 10
+    elif sensitivity <= 4.0:
+        kmer, max_seqs, max_accept, max_rejected = 6, 50, 5, 50
+    elif sensitivity <= 6.0:
+        kmer, max_seqs, max_accept, max_rejected = 6, 150, 10, 100
+    else:
+        kmer, max_seqs, max_accept, max_rejected = 6, 300, 50, 300
+    return [
+        "-s", str(sensitivity),
+        "-k", str(kmer),
+        "--max-seqs", str(max_seqs),
+        "--max-accept", str(max_accept),
+        "--max-rejected", str(max_rejected),
+    ]
+
 def parse_fasta(fasta_path):
     try:
         record = next(SeqIO.parse(fasta_path, "fasta"))
@@ -316,6 +347,9 @@ def main():
     parser.add_argument("--min_coverage", type=float, default=99.0, help="Copertura minima (%%).")
     parser.add_argument("--pdb_db", type=str, default="/media/marco/Database/Test_Database/PDB", help="Percorso al database PDB per MMseqs2.")
     parser.add_argument("--uniprot_db", type=str, default="/media/marco/Database/Test_Database/UniProtKB-TrEMBL", help="Percorso al database UniProtKB per MMseqs2.")
+    parser.add_argument("--uniprot_sensitivity", type=float, default=1.0,
+                        help="MMseqs2 sensitivity for UniProt search (1.0=fastest, "
+                             "8.5=most sensitive). Default: 1.0.")
     args = parser.parse_args()
 
     input_path = os.path.abspath(args.input_file)
@@ -363,19 +397,9 @@ def main():
                                 truncate_and_save_pdb(temp_pdb_path, output_pdb_path, chain_id, start, end)
                                 print("\n🎉 Operazione completata!"); shutil.rmtree(temp_dir); sys.exit(0)
         
-        # Aggressive speed parameters for the large UniProt database.
-        # We only need a single high-identity hit for AlphaFold DB lookup,
-        # so we trade sensitivity for speed:
-        #   -s 1            lowest sensitivity (fastest prefilter)
-        #   -k 7            longer k-mers (faster, less sensitive prefilter)
-        #   --max-seqs 10   keep very few prefilter candidates
-        #   --max-accept 1  stop after 1st accepted alignment
-        #   --max-rejected 10  stop after 10 rejected alignments
-        uniprot_fast_params = [
-            "-s", "1", "-k", "7",
-            "--max-seqs", "10",
-            "--max-accept", "1", "--max-rejected", "10",
-        ]
+        # Use sensitivity-tuned parameters for the large UniProt database.
+        # Controlled via --uniprot_sensitivity (1.0=fastest, 8.5=most sensitive).
+        uniprot_fast_params = build_uniprot_search_params(args.uniprot_sensitivity)
         if (uniprot_hit := run_mmseqs_search(temp_query_fasta, seq_len, uniprot_db, temp_dir, args.min_identity, args.min_coverage, extra_params=uniprot_fast_params)):
             uniprot_id, _, _ = uniprot_hit
             # Gestisce formati come sp|P12345|... o tr|A0A0|... o semplici ID
