@@ -40,9 +40,12 @@ Input FASTA
 
 | | **v1 – Conda** (`structure_predictor.py`) | **v2 – Docker** (`structure_predictor_docker.py`) |
 |---|---|---|
-| **Host requirements** | Conda, CUDA toolkit, NVIDIA driver matching your PyTorch build | Docker, nvidia-container-toolkit, NVIDIA driver ≥ 525.60.13 |
-| **Best for** | Systems with full CUDA stack (Ubuntu 22.04+, recent drivers) | Older systems (e.g. Ubuntu 20.04) or when you want a reproducible, self-contained environment |
-| **GPU access** | Direct (via Conda environment) | Via NVIDIA Container Toolkit |
+| **Boltz-2 runs via** | Conda environment (direct GPU) | Docker container (GPU via nvidia-container-toolkit) |
+| **Searches & alignment** | Host (Conda env) | Host (native Python + MMseqs2) |
+| **Host requirements** | Conda, CUDA toolkit, NVIDIA driver matching your PyTorch build | Python 3 + pip, MMseqs2, Docker, nvidia-container-toolkit |
+| **Best for** | Systems with full CUDA stack (Ubuntu 22.04+, recent drivers) | Systems where installing the required CUDA/driver stack is not possible (e.g. Ubuntu 20.04) |
+
+> **Why v2?**  Some workstations (e.g. Ubuntu 20.04) cannot install the NVIDIA drivers required by modern PyTorch/CUDA.  The Docker edition solves this by running *only* the GPU-intensive Boltz-2 prediction inside a container that ships its own CUDA 12.6 runtime.  All other pipeline steps (MMseqs2 searches, PDB downloads, Biopython alignment) run **natively on the host** for maximum speed.
 
 ---
 
@@ -133,8 +136,6 @@ Set the `CONDA_ENV_PATH` variable at the top of `structure_predictor.py` to the 
 python structure_predictor.py <input_file> [options]
 ```
 
-#### Command-line arguments
-
 | Argument | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `input_file` | ✅ | — | Input file (`.fasta`, `.fa`, `.pdb`, or `.cif`) |
@@ -162,9 +163,47 @@ python structure_predictor.py my_protein.fasta --min_identity 95.0 --min_coverag
 
 ## Installation – v2 (Docker)
 
-The Docker version packages all dependencies (Boltz-2, PyTorch, MMseqs2, Biopython) into a single container image. **No Conda environment, CUDA toolkit, or Python scientific packages are needed on the host.** This is the recommended method for systems where installing the latest CUDA stack is difficult or impossible (e.g. Ubuntu 20.04 workstations with older NVIDIA drivers).
+The Docker edition runs the entire pipeline **natively on the host** except for the Boltz-2 de-novo prediction step, which runs inside a GPU-capable Docker container. This avoids the need to install CUDA, conda, or matching NVIDIA drivers on the host system.
 
-### 1. Install Docker
+### Architecture
+
+```
+HOST (native)                         DOCKER CONTAINER
+───────────────────────────────       ──────────────────────
+  structure_predictor_docker.py
+    ├─ MMseqs2 search (CPU)        
+    ├─ PDB / AlphaFold download    
+    ├─ Biopython alignment         
+    │                              
+    └─ run_boltz() ──────────────►   boltz predict (GPU)
+         docker run --gpus all         PyTorch + CUDA 12.6
+         -v workdir:/workspace         writes results to
+         -v cache:/root/.cache         mounted /workspace
+                                   ◄── results on host
+    ├─ Parse confidence scores
+    └─ Extract best model (PDB)
+```
+
+### 1. Host dependencies
+
+Install Python packages (no conda needed):
+
+```bash
+pip install biopython requests
+```
+
+Install MMseqs2 (CPU build – runs natively, no GPU needed):
+
+```bash
+wget https://mmseqs.com/latest/mmseqs-linux-avx2.tar.gz
+tar xvfz mmseqs-linux-avx2.tar.gz
+echo "export PATH=$(pwd)/mmseqs/bin/:\$PATH" >> ~/.bashrc
+source ~/.bashrc
+```
+
+Download the MMseqs2 databases (same as v1 – see above).
+
+### 2. Install Docker
 
 Follow the official instructions for your distribution: https://docs.docker.com/engine/install/
 
@@ -189,29 +228,9 @@ sudo usermod -aG docker $USER
 newgrp docker    # or log out and back in
 ```
 
-### 2. Install NVIDIA driver (≥ 525.60.13)
-
-The Docker container runs its own CUDA toolkit internally, but the host still needs a compatible NVIDIA GPU driver. The minimum required version is **525.60.13**.
-
-For Ubuntu 20.04, install a supported driver from the NVIDIA PPA:
-
-```bash
-sudo add-apt-repository -y ppa:graphics-drivers/ppa
-sudo apt-get update
-# Install driver 535 (or any version >= 525)
-sudo apt-get install -y nvidia-driver-535
-sudo reboot
-```
-
-After rebooting, verify with:
-
-```bash
-nvidia-smi
-```
-
 ### 3. Install NVIDIA Container Toolkit
 
-This enables Docker containers to access the host GPU:
+This enables Docker containers to access the host GPU **without requiring you to update the host NVIDIA driver**. The container ships its own CUDA 12.6 runtime.
 
 ```bash
 curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
@@ -231,18 +250,14 @@ Verify GPU access inside Docker:
 docker run --rm --gpus all nvidia/cuda:12.6.0-base-ubuntu22.04 nvidia-smi
 ```
 
-### 4. Download the MMseqs2 databases
+### 4. Build the Docker image
 
-Same as the Conda version — see above. The databases live on the host and are bind-mounted into the container at runtime.
-
-### 5. Build the Docker image
+The Docker image contains **only** Boltz-2 and PyTorch (CUDA 12.6). It is deliberately minimal (~8 GB) since all other tools run on the host.
 
 ```bash
 cd structure-predictor/
 docker build -t biochorl/structure-predictor:latest .
 ```
-
-Or let the wrapper script build it for you with the `--build` flag (see below).
 
 ### Usage (v2)
 
@@ -250,56 +265,36 @@ Or let the wrapper script build it for you with the `--build` flag (see below).
 python3 structure_predictor_docker.py <input_file> [options]
 ```
 
-> **Note:** The wrapper script only requires Python 3 (any version ≥ 3.6) and Docker on the host. No scientific packages are needed.
-
-#### Command-line arguments
-
 | Argument | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `input_file` | ✅ | — | Input file (`.fasta`, `.fa`, `.pdb`, or `.cif`) |
 | `--min_identity` | ❌ | `99.0` | Minimum sequence identity (%) |
 | `--min_coverage` | ❌ | `99.0` | Minimum query coverage (%) |
-| `--pdb_db` | ✅ | — | Absolute path to the local MMseqs2-formatted PDB database |
-| `--uniprot_db` | ✅ | — | Absolute path to the local MMseqs2-formatted UniProtKB-TrEMBL database |
-| `--docker_image` | ❌ | `biochorl/structure-predictor:latest` | Docker image name |
+| `--pdb_db` | ❌ | *(see below)* | Path to local MMseqs2-formatted PDB database |
+| `--uniprot_db` | ❌ | *(see below)* | Path to local MMseqs2-formatted UniProtKB-TrEMBL database |
+| `--docker_image` | ❌ | `biochorl/structure-predictor:latest` | Docker image for Boltz-2 |
 | `--boltz_cache` | ❌ | `~/.cache/boltz_docker` | Host path for persistent Boltz model weights |
-| `--build` | ❌ | — | Build/rebuild the Docker image before running |
 
 #### Examples (v2)
 
 ```bash
-# Build the image and run in one step
-python3 structure_predictor_docker.py my_protein.fasta --build \
-    --pdb_db /data/mmseqs_dbs/PDB \
-    --uniprot_db /data/mmseqs_dbs/UniProtKB-TrEMBL
-
-# Run (image already built)
+# Basic run
 python3 structure_predictor_docker.py my_protein.fasta \
     --pdb_db /data/mmseqs_dbs/PDB \
     --uniprot_db /data/mmseqs_dbs/UniProtKB-TrEMBL
 
-# Custom thresholds and persistent cache location
+# Custom thresholds
 python3 structure_predictor_docker.py my_protein.fasta \
     --min_identity 95.0 --min_coverage 90.0 \
+    --pdb_db /data/mmseqs_dbs/PDB \
+    --uniprot_db /data/mmseqs_dbs/UniProtKB-TrEMBL
+
+# Persistent cache for Boltz model weights (avoids re-download)
+python3 structure_predictor_docker.py my_protein.fasta \
     --pdb_db /data/mmseqs_dbs/PDB \
     --uniprot_db /data/mmseqs_dbs/UniProtKB-TrEMBL \
     --boltz_cache /data/boltz_weights
 ```
-
-#### How it works
-
-The wrapper script (`structure_predictor_docker.py`) translates your host paths into Docker volume mounts and runs the original `structure_predictor.py` inside the container:
-
-```
-Host                                    Container
-─────────────────────────────────────   ──────────────────────
-./my_protein.fasta                  →   /workspace/my_protein.fasta
-/data/mmseqs_dbs/  (PDB files)      →   /db/pdb/    (read-only)
-/data/mmseqs_dbs/  (UniProt files)  →   /db/uniprot/ (read-only)
-~/.cache/boltz_docker               →   /root/.cache (read-write)
-```
-
-Output files (`my_protein.pdb`, `my_protein_report.log`, etc.) are written to the same host directory as the input file.
 
 ---
 
@@ -331,7 +326,7 @@ The PDB and UniProtKB-TrEMBL databases are searched **locally** via pre-built MM
 
 ## Third-party software & licenses
 
-This pipeline integrates or calls the following tools. They are **not bundled** with this repository — users must install them separately (or use the Docker image which includes them all).
+This pipeline integrates or calls the following tools. They are **not bundled** with this repository — users must install them separately (or use the Docker image which includes Boltz-2).
 
 | Software | License | Role in the pipeline |
 |----------|---------|---------------------|
