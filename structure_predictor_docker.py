@@ -352,6 +352,9 @@ def run_boltz(fasta_path, final_output_path, boltz_output_dir,
         "docker", "run", "--rm",
         "--gpus", "all",
         "--user", uid_gid,
+        # Non-root user can't write to /root; redirect HOME and caches
+        "-e", "HOME=/tmp",
+        "-e", "NUMBA_CACHE_DIR=/tmp/numba_cache",
         "-v", f"{abs_output_dir}:/workspace",
         "-v", f"{abs_cache}:/cache",
         "-w", "/workspace",
@@ -434,6 +437,9 @@ def main():
                         default=os.path.expanduser("~/.cache/boltz_docker"),
                         help="Host directory for persistent Boltz model "
                              "weights [default: ~/.cache/boltz_docker].")
+    parser.add_argument("--skip_search", action="store_true",
+                        help="Skip MMseqs2 database searches and go "
+                             "directly to Boltz-2 de-novo prediction.")
     args = parser.parse_args()
 
     input_path = os.path.abspath(args.input_file)
@@ -460,9 +466,11 @@ def main():
 
     # ── FASTA input ──────────────────────────────────────────────────────
     elif input_path.endswith(('.fasta', '.fa')):
-        check_mmseqs_availability()
         sequence, seq_len = parse_fasta(input_path)
         print(f"Sequence read: {seq_len} aa.")
+
+        if not args.skip_search:
+            check_mmseqs_availability()
 
         temp_query = os.path.join(temp_dir, "query.fasta")
         with open(temp_query, "w") as f:
@@ -472,7 +480,9 @@ def main():
         uniprot_db = os.path.abspath(args.uniprot_db)
 
         # Step 1 – PDB search (HOST)
-        pdb_hit = run_mmseqs_search(temp_query, seq_len, pdb_db,
+        pdb_hit = None
+        if not args.skip_search:
+            pdb_hit = run_mmseqs_search(temp_query, seq_len, pdb_db,
                                     temp_dir, args.min_identity,
                                     args.min_coverage)
         if pdb_hit:
@@ -497,23 +507,25 @@ def main():
                                 sys.exit(0)
 
         # Step 2 – AlphaFold DB lookup (HOST)
-        # Aggressive speed parameters for the large UniProt database.
-        # We only need a single high-identity hit for AlphaFold DB lookup,
-        # so we trade sensitivity for speed:
-        #   -s 1            lowest sensitivity (fastest prefilter)
-        #   -k 7            longer k-mers (faster, less sensitive prefilter)
-        #   --max-seqs 10   keep very few prefilter candidates
-        #   --max-accept 1  stop after 1st accepted alignment
-        #   --max-rejected 10  stop after 10 rejected alignments
-        uniprot_fast_params = [
-            "-s", "1", "-k", "7",
-            "--max-seqs", "10",
-            "--max-accept", "1", "--max-rejected", "10",
-        ]
-        uniprot_hit = run_mmseqs_search(temp_query, seq_len, uniprot_db,
-                                        temp_dir, args.min_identity,
-                                        args.min_coverage,
-                                        extra_params=uniprot_fast_params)
+        uniprot_hit = None
+        if not args.skip_search:
+            # Aggressive speed parameters for the large UniProt database.
+            # We only need a single high-identity hit for AlphaFold DB lookup,
+            # so we trade sensitivity for speed:
+            #   -s 1            lowest sensitivity (fastest prefilter)
+            #   -k 7            longer k-mers (faster, less sensitive prefilter)
+            #   --max-seqs 10   keep very few prefilter candidates
+            #   --max-accept 1  stop after 1st accepted alignment
+            #   --max-rejected 10  stop after 10 rejected alignments
+            uniprot_fast_params = [
+                "-s", "1", "-k", "7",
+                "--max-seqs", "10",
+                "--max-accept", "1", "--max-rejected", "10",
+            ]
+            uniprot_hit = run_mmseqs_search(temp_query, seq_len, uniprot_db,
+                                            temp_dir, args.min_identity,
+                                            args.min_coverage,
+                                            extra_params=uniprot_fast_params)
         if uniprot_hit:
             uid, _, _ = uniprot_hit
             uniprot_acc = uid.split('|')[1] if '|' in uid else uid
