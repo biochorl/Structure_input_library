@@ -1,0 +1,8 @@
+.git
+.gitignore
+examples/
+README.md
+LICENSE
+structure_predictor_docker.py
+*.pyc
+__pycache__/

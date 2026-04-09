@@ -36,6 +36,16 @@ Input FASTA
 
 ---
 
+## Two installation modes
+
+| | **v1 – Conda** (`structure_predictor.py`) | **v2 – Docker** (`structure_predictor_docker.py`) |
+|---|---|---|
+| **Host requirements** | Conda, CUDA toolkit, NVIDIA driver matching your PyTorch build | Docker, nvidia-container-toolkit, NVIDIA driver ≥ 525.60.13 |
+| **Best for** | Systems with full CUDA stack (Ubuntu 22.04+, recent drivers) | Older systems (e.g. Ubuntu 20.04) or when you want a reproducible, self-contained environment |
+| **GPU access** | Direct (via Conda environment) | Via NVIDIA Container Toolkit |
+
+---
+
 ## Input & Output
 
 ### Supported input files
@@ -59,7 +69,7 @@ For an input named `my_protein.fasta`:
 
 ---
 
-## Installation
+## Installation – v1 (Conda)
 
 ### 1. Create a Conda environment
 
@@ -117,15 +127,13 @@ pip install biopython
 
 Set the `CONDA_ENV_PATH` variable at the top of `structure_predictor.py` to the absolute path of the Conda environment you just created. The script will automatically re-launch itself inside the correct environment if it is not already active.
 
----
-
-## Usage
+### Usage (v1)
 
 ```bash
 python structure_predictor.py <input_file> [options]
 ```
 
-### Command-line arguments
+#### Command-line arguments
 
 | Argument | Required | Default | Description |
 |----------|----------|---------|-------------|
@@ -135,26 +143,163 @@ python structure_predictor.py <input_file> [options]
 | `--pdb_db` | ❌ | *(see below)* | Absolute path to the local MMseqs2-formatted PDB database |
 | `--uniprot_db` | ❌ | *(see below)* | Absolute path to the local MMseqs2-formatted UniProtKB-TrEMBL database |
 
-### Examples
+#### Examples (v1)
 
-**Basic run with a FASTA file:**
 ```bash
+# Basic run
 python structure_predictor.py my_protein.fasta
-```
 
-**Specifying custom database paths (required on different machines):**
-```bash
+# Custom database paths
 python structure_predictor.py my_protein.fasta \
     --pdb_db /data/mmseqs_dbs/PDB \
     --uniprot_db /data/mmseqs_dbs/UniProtKB-TrEMBL
-```
 
-**Custom identity and coverage thresholds:**
-```bash
+# Custom thresholds
 python structure_predictor.py my_protein.fasta --min_identity 95.0 --min_coverage 90.0
 ```
 
-The script will automatically handle Conda environment activation and proceed with the search or prediction.
+---
+
+## Installation – v2 (Docker)
+
+The Docker version packages all dependencies (Boltz-2, PyTorch, MMseqs2, Biopython) into a single container image. **No Conda environment, CUDA toolkit, or Python scientific packages are needed on the host.** This is the recommended method for systems where installing the latest CUDA stack is difficult or impossible (e.g. Ubuntu 20.04 workstations with older NVIDIA drivers).
+
+### 1. Install Docker
+
+Follow the official instructions for your distribution: https://docs.docker.com/engine/install/
+
+For Ubuntu 20.04:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y ca-certificates curl gnupg
+sudo install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+  https://download.docker.com/linux/ubuntu focal stable" | \
+  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+sudo apt-get update
+sudo apt-get install -y docker-ce docker-ce-cli containerd.io
+```
+
+Add your user to the `docker` group so you can run containers without `sudo`:
+
+```bash
+sudo usermod -aG docker $USER
+newgrp docker    # or log out and back in
+```
+
+### 2. Install NVIDIA driver (≥ 525.60.13)
+
+The Docker container runs its own CUDA toolkit internally, but the host still needs a compatible NVIDIA GPU driver. The minimum required version is **525.60.13**.
+
+For Ubuntu 20.04, install a supported driver from the NVIDIA PPA:
+
+```bash
+sudo add-apt-repository -y ppa:graphics-drivers/ppa
+sudo apt-get update
+# Install driver 535 (or any version >= 525)
+sudo apt-get install -y nvidia-driver-535
+sudo reboot
+```
+
+After rebooting, verify with:
+
+```bash
+nvidia-smi
+```
+
+### 3. Install NVIDIA Container Toolkit
+
+This enables Docker containers to access the host GPU:
+
+```bash
+curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
+  | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \
+  | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' \
+  | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list > /dev/null
+sudo apt-get update
+sudo apt-get install -y nvidia-container-toolkit
+sudo nvidia-ctk runtime configure --runtime=docker
+sudo systemctl restart docker
+```
+
+Verify GPU access inside Docker:
+
+```bash
+docker run --rm --gpus all nvidia/cuda:12.6.0-base-ubuntu22.04 nvidia-smi
+```
+
+### 4. Download the MMseqs2 databases
+
+Same as the Conda version — see above. The databases live on the host and are bind-mounted into the container at runtime.
+
+### 5. Build the Docker image
+
+```bash
+cd structure-predictor/
+docker build -t biochorl/structure-predictor:latest .
+```
+
+Or let the wrapper script build it for you with the `--build` flag (see below).
+
+### Usage (v2)
+
+```bash
+python3 structure_predictor_docker.py <input_file> [options]
+```
+
+> **Note:** The wrapper script only requires Python 3 (any version ≥ 3.6) and Docker on the host. No scientific packages are needed.
+
+#### Command-line arguments
+
+| Argument | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `input_file` | ✅ | — | Input file (`.fasta`, `.fa`, `.pdb`, or `.cif`) |
+| `--min_identity` | ❌ | `99.0` | Minimum sequence identity (%) |
+| `--min_coverage` | ❌ | `99.0` | Minimum query coverage (%) |
+| `--pdb_db` | ✅ | — | Absolute path to the local MMseqs2-formatted PDB database |
+| `--uniprot_db` | ✅ | — | Absolute path to the local MMseqs2-formatted UniProtKB-TrEMBL database |
+| `--docker_image` | ❌ | `biochorl/structure-predictor:latest` | Docker image name |
+| `--boltz_cache` | ❌ | `~/.cache/boltz_docker` | Host path for persistent Boltz model weights |
+| `--build` | ❌ | — | Build/rebuild the Docker image before running |
+
+#### Examples (v2)
+
+```bash
+# Build the image and run in one step
+python3 structure_predictor_docker.py my_protein.fasta --build \
+    --pdb_db /data/mmseqs_dbs/PDB \
+    --uniprot_db /data/mmseqs_dbs/UniProtKB-TrEMBL
+
+# Run (image already built)
+python3 structure_predictor_docker.py my_protein.fasta \
+    --pdb_db /data/mmseqs_dbs/PDB \
+    --uniprot_db /data/mmseqs_dbs/UniProtKB-TrEMBL
+
+# Custom thresholds and persistent cache location
+python3 structure_predictor_docker.py my_protein.fasta \
+    --min_identity 95.0 --min_coverage 90.0 \
+    --pdb_db /data/mmseqs_dbs/PDB \
+    --uniprot_db /data/mmseqs_dbs/UniProtKB-TrEMBL \
+    --boltz_cache /data/boltz_weights
+```
+
+#### How it works
+
+The wrapper script (`structure_predictor_docker.py`) translates your host paths into Docker volume mounts and runs the original `structure_predictor.py` inside the container:
+
+```
+Host                                    Container
+─────────────────────────────────────   ──────────────────────
+./my_protein.fasta                  →   /workspace/my_protein.fasta
+/data/mmseqs_dbs/  (PDB files)      →   /db/pdb/    (read-only)
+/data/mmseqs_dbs/  (UniProt files)  →   /db/uniprot/ (read-only)
+~/.cache/boltz_docker               →   /root/.cache (read-write)
+```
+
+Output files (`my_protein.pdb`, `my_protein_report.log`, etc.) are written to the same host directory as the input file.
 
 ---
 
@@ -180,13 +325,13 @@ The pipeline queries the following public biological databases:
 | [UniProt / UniProtKB-TrEMBL](https://www.uniprot.org/) | https://www.uniprot.org/ | Comprehensive, high-quality protein sequence and functional annotation resource |
 | [AlphaFold Protein Structure Database](https://alphafold.ebi.ac.uk/) | https://alphafold.ebi.ac.uk/ | Database of protein structure predictions by AlphaFold, covering the UniProt proteomes |
 
-The PDB and UniProtKB-TrEMBL databases are searched **locally** via pre-built MMseqs2 databases (see [Installation](#installation)). AlphaFold DB is queried **remotely** via its REST API to retrieve pre-computed models.
+The PDB and UniProtKB-TrEMBL databases are searched **locally** via pre-built MMseqs2 databases (see [Installation](#installation--v1-conda)). AlphaFold DB is queried **remotely** via its REST API to retrieve pre-computed models.
 
 ---
 
 ## Third-party software & licenses
 
-This pipeline integrates or calls the following tools. They are **not bundled** with this repository — users must install them separately.
+This pipeline integrates or calls the following tools. They are **not bundled** with this repository — users must install them separately (or use the Docker image which includes them all).
 
 | Software | License | Role in the pipeline |
 |----------|---------|---------------------|
