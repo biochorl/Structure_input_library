@@ -31,8 +31,10 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1
 
 # ── System packages ──────────────────────────────────────────────────────────
+# gcc is required by Triton to JIT-compile CUDA kernels at runtime.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         python3 python3-pip python3-dev \
+        gcc \
         wget ca-certificates \
     && ln -sf /usr/bin/python3 /usr/bin/python \
     && rm -rf /var/lib/apt/lists/*
