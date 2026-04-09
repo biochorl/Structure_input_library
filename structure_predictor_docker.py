@@ -488,10 +488,19 @@ def main():
                                 sys.exit(0)
 
         # Step 2 – AlphaFold DB lookup (HOST)
-        # Use faster search parameters for the large UniProt database:
-        # -s 4 reduces sensitivity (default 5.7) for ~3x speedup,
-        # --max-seqs 100 limits prefilter results since we only need the top hit.
-        uniprot_fast_params = ["-s", "4", "--max-seqs", "100"]
+        # Aggressive speed parameters for the large UniProt database.
+        # We only need a single high-identity hit for AlphaFold DB lookup,
+        # so we trade sensitivity for speed:
+        #   -s 1            lowest sensitivity (fastest prefilter)
+        #   -k 7            longer k-mers (faster, less sensitive prefilter)
+        #   --max-seqs 10   keep very few prefilter candidates
+        #   --max-accept 1  stop after 1st accepted alignment
+        #   --max-rejected 10  stop after 10 rejected alignments
+        uniprot_fast_params = [
+            "-s", "1", "-k", "7",
+            "--max-seqs", "10",
+            "--max-accept", "1", "--max-rejected", "10",
+        ]
         uniprot_hit = run_mmseqs_search(temp_query, seq_len, uniprot_db,
                                         temp_dir, args.min_identity,
                                         args.min_coverage,
