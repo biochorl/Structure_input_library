@@ -321,7 +321,13 @@ def run_boltz(fasta_path, final_output_path, boltz_output_dir,
     """
     print(f"\n🚀 Starting Boltz-2 prediction (via Docker)…")
     if os.path.exists(boltz_output_dir):
-        shutil.rmtree(boltz_output_dir)
+        try:
+            shutil.rmtree(boltz_output_dir)
+        except PermissionError:
+            # Previous Docker run may have left root-owned files
+            print("  ⚠ Root-owned files found, cleaning with sudo…")
+            subprocess.run(["sudo", "rm", "-rf", boltz_output_dir],
+                           check=True)
     os.makedirs(boltz_output_dir, exist_ok=True)
     os.makedirs(boltz_cache, exist_ok=True)
 
@@ -340,12 +346,14 @@ def run_boltz(fasta_path, final_output_path, boltz_output_dir,
     # ── Build docker run command ─────────────────────────────────────────
     abs_output_dir = os.path.abspath(boltz_output_dir)
     abs_cache      = os.path.abspath(boltz_cache)
+    uid_gid        = f"{os.getuid()}:{os.getgid()}"
 
     docker_cmd = [
         "docker", "run", "--rm",
         "--gpus", "all",
+        "--user", uid_gid,
         "-v", f"{abs_output_dir}:/workspace",
-        "-v", f"{abs_cache}:/root/.cache",
+        "-v", f"{abs_cache}:/cache",
         "-w", "/workspace",
         docker_image,
         # ── boltz CLI arguments ──
@@ -354,6 +362,7 @@ def run_boltz(fasta_path, final_output_path, boltz_output_dir,
         "--use_potentials",
         "--diffusion_samples", "5",
         "--use_msa_server",
+        "--cache", "/cache",
     ]
 
     print(f"🐳 Docker command:\n   {' '.join(docker_cmd)}\n")
