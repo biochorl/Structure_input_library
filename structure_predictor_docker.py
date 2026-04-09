@@ -215,7 +215,7 @@ def parse_fasta(fasta_path):
         sys.exit(f"ERROR reading FASTA: {e}")
 
 def run_mmseqs_search(temp_fasta, query_len, db_path, temp_dir,
-                      min_identity, min_coverage):
+                      min_identity, min_coverage, extra_params=None):
     db_name = os.path.basename(db_path)
     print(f"\n🔎 Running MMseqs2 search against '{db_name}'…")
     out_m8 = os.path.join(temp_dir, f"search_{db_name}.m8")
@@ -224,6 +224,8 @@ def run_mmseqs_search(temp_fasta, query_len, db_path, temp_dir,
     command = ["mmseqs", "easy-search", temp_fasta, db_path, out_m8,
                tmp_mmseqs, "--format-output",
                "target,pident,alnlen,qlen,tlen,tstart,tend"]
+    if extra_params:
+        command.extend(extra_params)
     try:
         subprocess.run(command, capture_output=True, text=True, check=True)
         if not os.path.exists(out_m8):
@@ -481,9 +483,14 @@ def main():
                                 sys.exit(0)
 
         # Step 2 – AlphaFold DB lookup (HOST)
+        # Use faster search parameters for the large UniProt database:
+        # -s 4 reduces sensitivity (default 5.7) for ~3x speedup,
+        # --max-seqs 100 limits prefilter results since we only need the top hit.
+        uniprot_fast_params = ["-s", "4", "--max-seqs", "100"]
         uniprot_hit = run_mmseqs_search(temp_query, seq_len, uniprot_db,
                                         temp_dir, args.min_identity,
-                                        args.min_coverage)
+                                        args.min_coverage,
+                                        extra_params=uniprot_fast_params)
         if uniprot_hit:
             uid, _, _ = uniprot_hit
             uniprot_acc = uid.split('|')[1] if '|' in uid else uid

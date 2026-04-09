@@ -190,13 +190,15 @@ def parse_fasta(fasta_path):
         return str(record.seq).upper(), len(record.seq)
     except Exception as e: sys.exit(f"ERRORE lettura FASTA: {e}")
 
-def run_mmseqs_search(temp_fasta, query_len, db_path, temp_dir, min_identity, min_coverage):
+def run_mmseqs_search(temp_fasta, query_len, db_path, temp_dir, min_identity, min_coverage, extra_params=None):
     db_name = os.path.basename(db_path)
     print(f"\n🔎 Avvio ricerca MMseqs2 su '{db_name}'...")
     out_m8 = os.path.join(temp_dir, f"search_{db_name}.m8")
     tmp_mmseqs = os.path.join(temp_dir, f"mmseqs_tmp_{db_name}")
     os.makedirs(tmp_mmseqs, exist_ok=True)
     command = ["mmseqs", "easy-search", temp_fasta, db_path, out_m8, tmp_mmseqs, "--format-output", "target,pident,alnlen,qlen,tlen,tstart,tend"]
+    if extra_params:
+        command.extend(extra_params)
     try:
         subprocess.run(command, capture_output=True, text=True, check=True)
         if not os.path.exists(out_m8): print("MMseqs2 non ha prodotto risultati."); return None
@@ -357,7 +359,11 @@ def main():
                                 truncate_and_save_pdb(temp_pdb_path, output_pdb_path, chain_id, start, end)
                                 print("\n🎉 Operazione completata!"); shutil.rmtree(temp_dir); sys.exit(0)
         
-        if (uniprot_hit := run_mmseqs_search(temp_query_fasta, seq_len, uniprot_db, temp_dir, args.min_identity, args.min_coverage)):
+        # Use faster search parameters for the large UniProt database:
+        # -s 4 reduces sensitivity (default 5.7) for ~3x speedup,
+        # --max-seqs 100 limits prefilter results since we only need the top hit.
+        uniprot_fast_params = ["-s", "4", "--max-seqs", "100"]
+        if (uniprot_hit := run_mmseqs_search(temp_query_fasta, seq_len, uniprot_db, temp_dir, args.min_identity, args.min_coverage, extra_params=uniprot_fast_params)):
             uniprot_id, _, _ = uniprot_hit
             # Gestisce formati come sp|P12345|... o tr|A0A0|... o semplici ID
             uniprot_acc = uniprot_id.split('|')[1] if '|' in uniprot_id else uniprot_id
