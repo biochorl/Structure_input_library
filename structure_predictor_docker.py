@@ -472,6 +472,8 @@ def main():
     parser.add_argument("--skip_search", action="store_true",
                         help="Skip MMseqs2 database searches and go "
                              "directly to Boltz-2 de-novo prediction.")
+    parser.add_argument("--no_uniprot", action="store_true",
+                        help="Disable search on the UniProt database.")
     args = parser.parse_args()
 
     input_path = os.path.abspath(args.input_file)
@@ -540,7 +542,7 @@ def main():
 
         # Step 2 – AlphaFold DB lookup (HOST)
         uniprot_hit = None
-        if not args.skip_search:
+        if not args.skip_search and not args.no_uniprot:
             # Sensitivity-tuned parameters for UniProt search.
             # Controlled via --uniprot_sensitivity (1.0=fastest, 8.5=most sensitive).
             uniprot_fast_params = build_uniprot_search_params(args.uniprot_sensitivity)
